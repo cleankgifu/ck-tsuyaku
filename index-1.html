@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1D4A8A">
+<title>CK通訳</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
+<style>
+/* Layout: chat log fills the screen, live-listening panel above two big mic buttons at the bottom. Table mode splits the screen: top half rotated 180° for the person across the table. Me = blue, them = crimson (Nepali flag). */
+:root{
+  --bg:#F2F4F7; --surface:#FFFFFF; --ink:#18202E; --muted:#5E6878; --line:#DCE1E8;
+  --me:#1D4A8A; --me-soft:#E6EDF8; --them:#B4122B; --them-soft:#FBE9EC;
+  --warn:#8A5A00; --warn-soft:#FFF4D9; --on-accent:#FFFFFF; --ok:#1F7A4D;
+  --f:"Zen Kaku Gothic New","Noto Sans Devanagari","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#10141B; --surface:#1A2029; --ink:#E8ECF2; --muted:#9AA4B2; --line:#2C3542;
+  --me:#8DB3F0; --me-soft:#1C2A40; --them:#FF8597; --them-soft:#3A1C23;
+  --warn:#F2C46B; --warn-soft:#3A2F17; --on-accent:#10141B; --ok:#6FD3A0; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f);font-size:16px;line-height:1.6;-webkit-tap-highlight-color:transparent}
+button{font:inherit;cursor:pointer;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 14px}
+button:focus-visible,select:focus,input:focus,textarea:focus{outline:3px solid color-mix(in srgb,var(--me) 45%,transparent);outline-offset:1px}
+select,input[type=text],input[type=password],textarea{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%}
+
+.main{height:100%;display:flex;flex-direction:column;max-width:760px;margin:0 auto;
+  padding:env(safe-area-inset-top,0px) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) max(12px,env(safe-area-inset-left,0px))}
+header{display:flex;align-items:center;gap:8px;padding:10px 0}
+header h1{font-size:20px;margin:0;flex:1}
+header button{font-size:14px;padding:7px 12px}
+.log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:4px 2px 10px}
+.empty{color:var(--muted);font-size:15px;background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:16px;margin:auto 0}
+.empty b{color:var(--ink)}
+.msg{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;max-width:92%;min-width:0}
+.msg.me{align-self:flex-end;border-right:5px solid var(--me)}
+.msg.them{align-self:flex-start;border-left:5px solid var(--them)}
+.who{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;gap:10px}
+.src{font-size:14px;color:var(--muted);overflow-wrap:anywhere}
+.out{font-size:21px;line-height:1.5;font-weight:700;overflow-wrap:anywhere}
+.roman{font-size:13px;color:var(--muted);font-style:italic}
+.back{font-size:13px;background:var(--bg);border-radius:6px;padding:5px 9px}
+.back b{color:var(--muted);font-weight:400;font-size:11px;margin-right:6px}
+.note{font-size:13px;background:var(--warn-soft);color:var(--warn);border-radius:6px;padding:5px 9px}
+.acts{display:flex;gap:6px;flex-wrap:wrap}
+.acts button{font-size:12px;padding:4px 10px;border-radius:8px}
+
+.live{background:var(--surface);border:2px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.live.me{border-color:var(--me)} .live.them{border-color:var(--them)}
+.live-head{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--them)}
+.live.me .dot{background:var(--me)}
+@media (prefers-reduced-motion:no-preference){.listening .dot{animation:pulse 1s infinite}@keyframes pulse{50%{opacity:.25}}}
+.live-text{font-size:19px;min-height:1.6em;overflow-wrap:anywhere;max-height:30vh;overflow-y:auto}
+.live-text i{color:var(--muted);font-style:normal}
+.bar{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.bar span{display:block;height:100%;width:0;background:var(--ink)}
+.live-acts{display:flex;gap:8px;justify-content:flex-end}
+.live-acts .ok{background:var(--ink);color:var(--bg);border:none;font-weight:700}
+.status{font-size:14px;color:var(--muted);min-height:1.4em;padding:0 2px 6px}
+.status.err{color:var(--them)}
+
+.mics{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding-bottom:10px}
+.mic{border:none;border-radius:16px;padding:16px 8px;font-size:19px;font-weight:700;color:var(--on-accent);display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1.3}
+.mic small{font-size:12px;font-weight:400;opacity:.9}
+.mic.me{background:var(--me)} .mic.them{background:var(--them)}
+.mic.on{box-shadow:0 0 0 4px var(--bg),0 0 0 7px currentColor}
+.mic.me.on{color:var(--on-accent);box-shadow:0 0 0 4px var(--bg),0 0 0 7px var(--me)}
+.mic.them.on{box-shadow:0 0 0 4px var(--bg),0 0 0 7px var(--them)}
+.typebox{display:flex;gap:8px;padding-bottom:10px}
+.typebox textarea{min-height:44px;height:44px;resize:none;font-size:16px}
+
+/* table mode */
+.table{position:fixed;inset:0;z-index:30;background:var(--bg);display:grid;grid-template-rows:1fr auto 1fr}
+.half{display:flex;flex-direction:column;gap:8px;min-height:0;padding:10px max(12px,env(safe-area-inset-left,0px)) 10px max(12px,env(safe-area-inset-right,0px))}
+.half.them{transform:rotate(180deg);background:var(--them-soft);padding-top:calc(10px + env(safe-area-inset-bottom,0px))}
+.half.me{background:var(--me-soft);padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+.show{flex:1;min-height:0;overflow:auto;background:var(--surface);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.show .out{font-size:clamp(20px,5.5vw,32px)}
+.show .ph{color:var(--muted);font-size:14px}
+.half .mic{padding:14px 8px}
+.divider{display:flex;justify-content:center;gap:8px;padding:5px 12px;background:var(--surface);border-block:1px solid var(--line)}
+.divider button{font-size:13px;padding:6px 12px}
+
+/* settings */
+.sheet{position:fixed;inset:0;z-index:40;background:color-mix(in srgb,var(--ink) 40%,transparent);display:flex;align-items:flex-end;justify-content:center}
+.sheet-in{background:var(--surface);width:100%;max-width:760px;max-height:92%;overflow-y:auto;border-radius:16px 16px 0 0;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px}
+.sheet h2{margin:0;font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.grid label,.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);letter-spacing:.03em;min-width:0}
+.field .help{font-size:12px;color:var(--muted);margin:0;letter-spacing:0}
+.keyrow{display:flex;gap:8px}
+.keyrow button{white-space:nowrap}
+.voicestat{font-size:13px;color:var(--muted);margin:0}
+.voicestat b{color:var(--ink)}
+.sheet .done{background:var(--ink);color:var(--bg);border:none;font-weight:700;padding:12px}
+.okmsg{color:var(--ok)}
+.errmsg{color:var(--them)}
+</style>
+</head>
+<body>
+
+<div class="main" id="main">
+  <header>
+    <h1>CK通訳</h1>
+    <button type="button" id="openTable">テーブル</button>
+    <button type="button" id="openSettings">設定</button>
+  </header>
+
+  <div class="log" id="log"></div>
+
+  <div class="live" id="live" hidden>
+    <div class="live-head"><span class="dot"></span><span id="liveLabel">聞いています…</span></div>
+    <div class="live-text" id="liveText"></div>
+    <div class="bar"><span id="liveBar"></span></div>
+    <div class="live-acts">
+      <button type="button" id="liveCancel">取り消す</button>
+      <button type="button" class="ok" id="liveDone">訳す ✓</button>
+    </div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="typebox" id="typebox" hidden>
+    <textarea id="typeText" placeholder="文字で入力して訳すこともできます"></textarea>
+    <button type="button" id="typeMe">わたし</button>
+    <button type="button" id="typeThem" data-them-name>相手</button>
+  </div>
+
+  <div class="mics">
+    <button type="button" class="mic me" data-mic="me"><span id="micMeLabel">🎤 日本語</span><small>わたしが話す</small></button>
+    <button type="button" class="mic them" data-mic="them"><span data-them-mic>🎤 नेपाली</span><small data-them-sub>तपाईं बोल्नुहोस्</small></button>
+  </div>
+</div>
+
+<!-- table mode -->
+<div class="table" id="table" hidden>
+  <section class="half them">
+    <div class="show" id="showThem"><span class="ph" data-them-ph></span></div>
+    <button type="button" class="mic them" data-mic="them"><span data-them-mic>🎤 नेपाली</span><small data-them-sub>तपाईं बोल्नुहोस्</small></button>
+  </section>
+  <div class="divider">
+    <button type="button" id="tReplay">🔊 もう一度</button>
+    <button type="button" id="tStop">■ 止める</button>
+    <button type="button" id="closeTable">テーブル終了</button>
+  </div>
+  <section class="half me">
+    <div class="show" id="showMe"><span class="ph">相手の話は、ここに日本語で出ます。</span></div>
+    <div class="status" id="tStatus"></div>
+    <button type="button" class="mic me" data-mic="me"><span class="micMeLabel2">🎤 日本語</span><small>わたしが話す</small></button>
+  </section>
+</div>
+
+<!-- settings -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-in">
+    <h2>設定</h2>
+    <div class="field">
+      Claude APIキー
+      <div class="keyrow">
+        <input type="password" id="apiKey" placeholder="sk-ant-… を貼り付け" autocomplete="off">
+        <button type="button" id="testKey">確認</button>
+      </div>
+      <p class="help" id="keyMsg">キーはこのスマホの中だけに保存され、Anthropic以外には送られません。</p>
+    </div>
+    <div class="grid">
+      <label>翻訳モデル
+        <select id="model">
+          <option value="claude-sonnet-5-5">Sonnet（おすすめ・約1円/回）</option>
+          <option value="claude-haiku-5-5">Haiku（最速・約0.05円/回）</option>
+          <option value="claude-opus-5-5">Opus（より正確・約2円/回）</option>
+          <option value="claude-fable-5-1">Fable（最高精度・遅め・約4円/回）</option>
+        </select>
+      </label>
+      <label>わたしの言語
+        <select id="myLang"><option value="ja">日本語</option><option value="en">English</option></select>
+      </label>
+      <label>相手の言語
+        <select id="otherLang"></select>
+      </label>
+      <label>訳したら声で読む
+        <select id="autoSpeak"><option value="on">読み上げる</option><option value="off">読み上げない</option></select>
+      </label>
+      <label>読み上げ後、相手の番を自動で聞く
+        <select id="handsFree"><option value="on">自動で聞く（ハンズフリー）</option><option value="off">ボタンを押して聞く</option></select>
+      </label>
+      <label>無音で自動的に訳す
+        <select id="silenceSec"><option value="0">しない（合図かボタン）</option><option value="3">3秒黙ったら</option><option value="5">5秒黙ったら</option><option value="8">8秒黙ったら</option></select>
+      </label>
+      <label>わたしの合図（カンマ区切り）
+        <input type="text" id="wordMe">
+      </label>
+      <label>相手の合図（カンマ区切り）
+        <input type="text" id="wordThem">
+      </label>
+    </div>
+    <label class="field">場面（訳し方の参考）
+      <input type="text" id="scene">
+    </label>
+    <p class="voicestat" id="voiceStat"></p>
+    <div class="keyrow">
+      <button type="button" id="toggleType">文字入力欄を表示</button>
+      <button type="button" id="clearLog">会話の記録を消す</button>
+    </div>
+    <button type="button" class="done" id="closeSettings">閉じる</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+const LANGS = {
+  ne:{name:"नेपाली", ja:"ネパール語", en:"Nepali", sr:"ne-NP", tts:"ne", mic:"🎤 नेपाली", sub:"तपाईं बोल्नुहोस्", word:"भयो, सकियो, over",
+      ph:"स्टाफले भनेको कुरा यहाँ नेपालीमा देखिन्छ। बोल्न तलको बटन थिच्नुहोस्, सकेपछि “भयो” भन्नुहोस्।",
+      rule:"Write in Devanagari script. Use the polite तपाईं form and simple, everyday spoken Nepali that ordinary people understand; avoid heavy Sanskrit-derived formal words. Keep Japanese names, place names and building names readable (in Devanagari, with Latin letters in parentheses when helpful). Numbers, dates, times and money amounts must be exact, written with Arabic numerals.", roman:true},
+  en:{name:"English", ja:"英語", en:"English", sr:"en-US", tts:"en", mic:"🎤 English", sub:"Tap and speak", word:"over, that's all",
+      ph:"What the staff says appears here in English. Tap the button below to speak, and say “over” when done.",
+      rule:"Use simple, clear spoken English that non-native speakers understand.", roman:false},
+  vi:{name:"Tiếng Việt", ja:"ベトナム語", en:"Vietnamese", sr:"vi-VN", tts:"vi", mic:"🎤 Tiếng Việt", sub:"Nhấn để nói", word:"xong, over",
+      ph:"Lời nhân viên sẽ hiện ở đây. Nhấn nút bên dưới để nói, nói “xong” khi kết thúc.",
+      rule:"Use polite, simple everyday Vietnamese.", roman:false},
+  zh:{name:"中文", ja:"中国語", en:"Simplified Chinese", sr:"zh-CN", tts:"zh", mic:"🎤 中文", sub:"按下说话", word:"说完了, over",
+      ph:"工作人员说的话会显示在这里。按下面的按钮说话，说完请说“说完了”。",
+      rule:"Use simple, polite Mandarin in simplified characters.", roman:true},
+  id:{name:"Bahasa Indonesia", ja:"インドネシア語", en:"Indonesian", sr:"id-ID", tts:"id", mic:"🎤 Indonesia", sub:"Ketuk untuk bicara", word:"selesai, over",
+      ph:"Ucapan staf muncul di sini. Tekan tombol di bawah untuk bicara, ucapkan “selesai” jika sudah.",
+      rule:"Use polite, simple everyday Indonesian.", roman:false},
+};
+const MY = { ja:{sr:"ja-JP", tts:"ja", name:"Japanese", mic:"🎤 日本語", word:"どうぞ, 以上です"},
+             en:{sr:"en-US", tts:"en", name:"English", mic:"🎤 English", word:"over, that's all"} };
+
+const $=id=>document.getElementById(id);
+const store={
+  get(k,d){try{const v=localStorage.getItem("ckt_"+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+  set(k,v){try{localStorage.setItem("ckt_"+k,JSON.stringify(v))}catch(e){}}
+};
+
+/* ---------- settings ---------- */
+for(const [k,v] of Object.entries(LANGS)){const o=document.createElement("option");o.value=k;o.textContent=`${v.name}（${v.ja}）`;$("otherLang").append(o)}
+const S={};
+const FIELDS={apiKey:"",model:"claude-sonnet-5-5",myLang:"ja",otherLang:"ne",autoSpeak:"on",handsFree:"on",silenceSec:"0",
+  wordMe:MY.ja.word,wordThem:LANGS.ne.word,scene:"アパート管理会社のスタッフと入居者の会話（入居・設備・ゴミ出し・家賃など）"};
+for(const [k,d] of Object.entries(FIELDS)){
+  S[k]=store.get(k,d); $(k).value=S[k];
+  $(k).addEventListener("change",()=>{
+    const prevOther=S.otherLang, prevMy=S.myLang;
+    S[k]=$(k).value.trim?$(k).value.trim():$(k).value; store.set(k,S[k]);
+    if(k==="otherLang"&&S.wordThem===LANGS[prevOther].word){S.wordThem=LANGS[S.otherLang].word;$("wordThem").value=S.wordThem;store.set("wordThem",S.wordThem)}
+    if(k==="myLang"&&S.wordMe===MY[prevMy].word){S.wordMe=MY[S.myLang].word;$("wordMe").value=S.wordMe;store.set("wordMe",S.wordMe)}
+    applyLangs();
+  });
+}
+function applyLangs(){
+  const L=LANGS[S.otherLang];
+  document.querySelectorAll("[data-them-mic]").forEach(e=>e.textContent=L.mic);
+  document.querySelectorAll("[data-them-sub]").forEach(e=>e.textContent=L.sub);
+  document.querySelectorAll("[data-them-ph]").forEach(e=>e.textContent=L.ph);
+  document.querySelectorAll("[data-them-name]").forEach(e=>e.textContent=L.ja);
+  $("micMeLabel").textContent=MY[S.myLang].mic;
+  document.querySelectorAll(".micMeLabel2").forEach(e=>e.textContent=MY[S.myLang].mic);
+  voiceStatus(); render();
+}
+$("openSettings").onclick=()=>{$("sheet").hidden=false};
+$("closeSettings").onclick=()=>{$("sheet").hidden=true};
+$("sheet").addEventListener("click",e=>{if(e.target===$("sheet"))$("sheet").hidden=true});
+$("toggleType").onclick=()=>{const t=$("typebox");t.hidden=!t.hidden;$("toggleType").textContent=t.hidden?"文字入力欄を表示":"文字入力欄を隠す";$("sheet").hidden=true};
+$("clearLog").onclick=()=>{
+  const b=$("clearLog");
+  if(b.dataset.armed){log=[];saveLog();render();delete b.dataset.armed;b.textContent="会話の記録を消す";return}
+  b.dataset.armed="1";b.textContent="もう一度押すと消えます";
+  setTimeout(()=>{if(b.dataset.armed){delete b.dataset.armed;b.textContent="会話の記録を消す"}},3000);
+};
+
+/* ---------- speech output ---------- */
+let voices=[];
+function loadVoices(){try{voices=speechSynthesis.getVoices()}catch(e){voices=[]} voiceStatus()}
+function voiceFor(lang){return voices.find(v=>v.lang&&v.lang.toLowerCase().replace("_","-").startsWith(lang))}
+function canSpeak(lang){return !!(window.speechSynthesis&&voiceFor(lang))}
+function voiceStatus(){
+  const el=$("voiceStat"); if(!el) return;
+  if(!window.speechSynthesis){el.innerHTML="読み上げ：このブラウザでは使えません。Chromeで開いてください。";return}
+  const L=LANGS[S.otherLang], m=MY[S.myLang];
+  let t=`読み上げ：${S.myLang==="ja"?"日本語":"英語"} <b>${canSpeak(m.tts)?"OK":"音声なし"}</b> ／ ${L.ja} <b>${canSpeak(L.tts)?"OK":"音声なし"}</b>`;
+  if(!canSpeak(L.tts)&&L.tts==="ne") t+="<br>ネパール語の声が入っていません。Androidの「設定 → テキスト読み上げの出力 → Google音声サービス → 音声データをインストール」でネパール語を追加できるか見てください。追加できない場合は訳文を画面で見せます。";
+  el.innerHTML=t;
+}
+loadVoices(); try{speechSynthesis.onvoiceschanged=loadVoices}catch(e){}
+let unlocked=false;
+document.addEventListener("pointerdown",()=>{ if(unlocked||!window.speechSynthesis) return;
+  try{const u=new SpeechSynthesisUtterance(" ");u.volume=0;speechSynthesis.speak(u);unlocked=true}catch(e){} },{capture:true});
+function speak(text,lang,onDone){
+  try{
+    if(S.autoSpeak!=="on"&&onDone!=="manual"){ if(typeof onDone==="function") onDone(); return false }
+    const v=voiceFor(lang); if(!v){ if(typeof onDone==="function") onDone(); return false }
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text); u.voice=v; u.lang=v.lang; u.rate=0.95;
+    let called=false; const done=()=>{if(called)return;called=true; if(typeof onDone==="function") onDone()};
+    u.onend=done; u.onerror=done;
+    speechSynthesis.speak(u); return true;
+  }catch(e){ if(typeof onDone==="function") onDone(); return false }
+}
+
+/* ---------- log ---------- */
+let log=store.get("log",[]);
+function saveLog(){store.set("log",log.slice(-80))}
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function render(){
+  const box=$("log");
+  if(!log.length){
+    box.innerHTML=`<div class="empty"><b>使い方</b><br>
+      ① 話す人の色のボタンを押して話します（息継ぎしても大丈夫）。<br>
+      ② 話し終わりに合図を言うと自動で訳して読み上げます。<br>
+      　わたし：「${esc(S.wordMe.split(",")[0])}」　相手：「${esc(S.wordThem.split(",")[0])}」<br>
+      ③ 合図を忘れても「訳す ✓」を押せばOK。<br>
+      ${S.apiKey?"":"<br>最初に右上の「設定」でAPIキーを入れてください。"}</div>`;
+  } else {
+    box.innerHTML="";
+    log.forEach((m,i)=>{
+      const el=document.createElement("div"); el.className="msg "+m.side;
+      el.innerHTML=`<div class="who"><span>${m.side==="me"?"わたし":esc(LANGS[m.other]?.ja||"相手")}</span><span>${esc(m.time)}</span></div>
+        <div class="src">${esc(m.src)}</div>
+        <div class="out" lang="${esc(m.outLang)}">${esc(m.out)}</div>
+        ${m.roman?`<div class="roman">${esc(m.roman)}</div>`:""}
+        ${m.back?`<div class="back"><b>逆翻訳</b>${esc(m.back)}</div>`:""}
+        ${m.note?`<div class="note">⚠ ${esc(m.note)}</div>`:""}
+        <div class="acts">${canSpeak(m.outLang)?`<button type="button" data-speak="${i}">🔊</button>`:""}<button type="button" data-fix="${i}">直して訳し直す</button></div>`;
+      box.append(el);
+    });
+  }
+  box.scrollTop=box.scrollHeight;
+}
+$("log").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  if(b.dataset.speak!=null){const m=log[+b.dataset.speak]; speak(m.out,m.outLang,"manual")}
+  if(b.dataset.fix!=null){const m=log[+b.dataset.fix]; $("typebox").hidden=false; $("typeText").value=m.src; $("typeText").focus(); fixSide=m.side}
+});
+let fixSide=null;
+$("typeMe").onclick=()=>{const t=$("typeText").value.trim(); if(t){$("typeText").value="";translate("me",t)}};
+$("typeThem").onclick=()=>{const t=$("typeText").value.trim(); if(t){$("typeText").value="";translate("them",t)}};
+
+/* ---------- status ---------- */
+function setStatus(t,err){
+  for(const id of ["status","tStatus"]){const s=$(id); s.textContent=t||""; s.classList.toggle("err",!!err)}
+}
+
+/* ---------- speech recognition ---------- */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null, listening=false, finishing=false, curSide=null, committed="", sessFinal="", sessInterim="";
+let silenceTimer=null, barRaf=null, finishFallback=null, idleTimer=null, lastInterim="", this_wordStripped=false;
+
+function langOf(side){return side==="me"?MY[S.myLang].sr:LANGS[S.otherLang].sr}
+function joiner(side){const l=langOf(side); return /^(ja|zh)/.test(l)?"":" "}
+function fullText(){return [committed,sessFinal].filter(Boolean).join(joiner(curSide)).trim()}
+function words(side){return (side==="me"?S.wordMe:S.wordThem).split(/[,、，]/).map(w=>w.trim()).filter(Boolean)}
+
+function showLive(){
+  const live=$("live");
+  live.hidden=!curSide; if(!curSide) return;
+  live.className="live "+curSide+(listening?" listening":"");
+  $("liveLabel").textContent=(curSide==="me"?"わたし":LANGS[S.otherLang].ja)+"："+(listening?"聞いています…（合図を言うか「訳す ✓」）":"まとめています…");
+  const ft=fullText();
+  $("liveText").innerHTML=esc(ft)+(sessInterim?` <i>${esc(sessInterim)}</i>`:"")+(!ft&&!sessInterim?'<i>話してください</i>':"");
+  $("liveText").scrollTop=$("liveText").scrollHeight;
+  document.querySelectorAll("[data-mic]").forEach(b=>b.classList.toggle("on",listening&&b.dataset.mic===curSide));
+  if(inTable){
+    const target=curSide==="me"?$("showMe"):$("showThem");
+    target.innerHTML=`<div class="src">${listening?"🎤 …":""}</div><div class="out" style="font-size:20px">${esc(ft)} <span style="color:var(--muted)">${esc(sessInterim)}</span></div>`;
+  }
+}
+
+function startListen(side){
+  if(!SR){setStatus("このブラウザは音声認識に対応していません。スマホのChromeで開いてください。",true);return}
+  if(!S.apiKey){setStatus("先に「設定」でAPIキーを入れてください。",true);$("sheet").hidden=false;return}
+  if(listening&&curSide===side){finish();return}
+  if(listening) cancelListen();
+  try{speechSynthesis.cancel()}catch(e){}
+  curSide=side; committed=""; sessFinal=""; sessInterim=""; lastInterim=""; listening=true; finishing=false; this_wordStripped=false;
+  setStatus(""); startSession(); showLive(); armSilence();
+  clearTimeout(idleTimer);
+  idleTimer=setTimeout(()=>{ if(listening&&!fullText()&&!sessInterim){ cancelListen(); setStatus("しばらく声がなかったので、聞くのを止めました。") } },45000);
+}
+function startSession(){
+  try{
+    rec=new SR(); rec.lang=langOf(curSide); rec.continuous=false; rec.interimResults=true; rec.maxAlternatives=1;
+    rec.onresult=e=>{
+      if(finishing&&this_wordStripped) return;
+      let fin="",intr="";
+      for(let i=0;i<e.results.length;i++){const t=e.results[i][0].transcript; if(e.results[i].isFinal) fin+=t; else intr+=t}
+      sessFinal=fin.trim(); sessInterim=intr.trim();
+      showLive(); armSilence();
+      if(sessFinal) checkWord();
+    };
+    rec.onerror=e=>{
+      if(e.error==="no-speech"||e.error==="aborted") return;
+      if(e.error==="not-allowed"||e.error==="service-not-allowed"){listening=false;curSide=null;showLive();setStatus("マイクが許可されていません。アドレスバー左のマークからマイクを「許可」にしてください。",true);return}
+      if(e.error==="language-not-supported"){listening=false;curSide=null;showLive();setStatus("この端末では、この言語の音声認識が使えません。文字入力欄を使ってください。",true);return}
+      if(e.error==="network"){setStatus("音声認識の通信が切れました。電波を確認してください。",true)}
+    };
+    rec.onend=()=>{
+      if(sessFinal){committed=[committed,sessFinal].filter(Boolean).join(joiner(curSide)); sessFinal=""}
+      if(sessInterim) lastInterim=sessInterim;
+      sessInterim="";
+      if(finishing){ completeFinish(); return }
+      if(listening) setTimeout(()=>{ if(listening&&!finishing) startSession() },60);
+    };
+    rec.start();
+  }catch(err){ if(listening) setTimeout(()=>{ if(listening&&!finishing) startSession() },300) }
+}
+function checkWord(){
+  const t=fullText().replace(/[\s。、．.！!？?।|,]+$/,"");
+  for(const w of words(curSide)){
+    if(t.toLowerCase().endsWith(w.toLowerCase())){
+      committed=t.slice(0,t.length-w.length).replace(/[\s、,。]+$/,""); sessFinal="";
+      finish(true); return true;
+    }
+  }
+  return false;
+}
+function armSilence(){
+  clearTimeout(silenceTimer); cancelAnimationFrame(barRaf); $("liveBar").style.width="0";
+  const sec=+S.silenceSec; if(!sec||!listening) return;
+  const ms=sec*1000, end=performance.now()+ms;
+  const tick=()=>{const left=end-performance.now(); $("liveBar").style.width=Math.min(100,100*(1-left/ms))+"%"; if(left>0) barRaf=requestAnimationFrame(tick)};
+  if(fullText()||sessInterim) tick();
+  silenceTimer=setTimeout(()=>{ if(listening&&(fullText()||sessInterim)) finish(); },ms);
+}
+function finish(wordAlreadyStripped){
+  if(!listening||finishing) return;
+  this_wordStripped=!!wordAlreadyStripped;
+  if(sessInterim) lastInterim=sessInterim;
+  finishing=true; listening=false; clearTimeout(silenceTimer); clearTimeout(idleTimer); cancelAnimationFrame(barRaf);
+  showLive();
+  try{rec&&rec.stop()}catch(e){}
+  finishFallback=setTimeout(completeFinish,1500);
+}
+function completeFinish(){
+  if(!finishing) return;
+  clearTimeout(finishFallback); finishing=false;
+  if(sessFinal){committed=[committed,sessFinal].filter(Boolean).join(joiner(curSide)); sessFinal=""}
+  let text=committed.trim();
+  if(!text&&!this_wordStripped&&lastInterim) text=lastInterim.trim();
+  if(!this_wordStripped){ // strip a signal word said just before stopping
+    const t=text.replace(/[\s。、．.！!？?।|,]+$/,"");
+    for(const w of words(curSide)){ if(t.toLowerCase().endsWith(w.toLowerCase())){ text=t.slice(0,t.length-w.length).replace(/[\s、,。]+$/,""); break } }
+  }
+  const side=curSide; curSide=null; committed=""; sessInterim=""; showLive();
+  if(text) translate(side,text); else setStatus("聞き取れませんでした。もう一度ボタンを押して話してください。");
+}
+function cancelListen(){
+  listening=false; finishing=false; clearTimeout(silenceTimer); clearTimeout(finishFallback); clearTimeout(idleTimer); cancelAnimationFrame(barRaf);
+  try{rec&&rec.abort()}catch(e){}
+  curSide=null; committed=""; sessFinal=""; sessInterim=""; showLive();
+}
+document.querySelectorAll("[data-mic]").forEach(b=>b.addEventListener("click",()=>startListen(b.dataset.mic)));
+$("liveDone").onclick=()=>finish();
+$("liveCancel").onclick=()=>{cancelListen();setStatus("取り消しました。")};
+$("tStop").onclick=()=>{ if(listening) finish(); else {cancelListen(); try{speechSynthesis.cancel()}catch(e){}} };
+
+/* ---------- translation (Claude API) ---------- */
+let busy=false;
+function buildPrompt(side,text){
+  const L=LANGS[S.otherLang], my=MY[S.myLang].name;
+  let src,tgt,rule,wantBack,wantRoman;
+  if(side==="me"){src=`${my} (it may also be ${my==="Japanese"?"English":"Japanese"}; detect)`;tgt=L.en;rule=L.rule;wantBack=true;wantRoman=L.roman}
+  else{src=L.en;tgt=my;rule=my==="Japanese"?"Use natural, polite Japanese (です・ます調).":"Use clear, natural English.";wantBack=false;wantRoman=false}
+  const recent=log.slice(-4).map(m=>`- ${m.side==="me"?"Staff":"Other person"}: ${m.src}`).join("\n");
+  return `Situation: ${S.scene||"everyday conversation"}.
+${recent?`Recent conversation, for context only (do not translate it):\n${recent}\n`:""}
+Translate the SOURCE from ${src} into ${tgt}.
+
+Rules:
+- Translate faithfully. Keep the meaning exactly. Do not add, drop, soften or embellish, and do not answer or comment on the content.
+- The source comes from speech recognition: it may lack punctuation, contain fillers (えー, あの, um), repetitions, or misrecognized words. Ignore fillers and repetitions. If a word is clearly misrecognized, translate the most likely intended meaning and mention it in "note".
+- It may be split by pauses into fragments; treat it as one continuous utterance.
+- ${rule}
+- Keep numbers, dates, times, amounts and room numbers exact.
+- The translation will be read aloud by text-to-speech, so write natural speech without brackets or odd symbols.
+
+Reply with only this JSON object, nothing else:
+{"translation":"…","romanized":${wantRoman?'"Latin-letter reading of the translation"':'""'},"back":${wantBack?`"your translation translated back into ${my}, literally, so the speaker can check the meaning"`:'""'},"note":"one short sentence in ${my} about any unclear part or likely misrecognition, or empty string"}
+
+SOURCE:
+<<<
+${text}
+>>>`;
+}
+function parseJSON(s){
+  try{return JSON.parse(s)}catch(e){}
+  const m=s.match(/```(?:json)?\s*([\s\S]*?)```/); if(m){try{return JSON.parse(m[1])}catch(e){}}
+  const a=s.indexOf("{"), b=s.lastIndexOf("}"); if(a>=0&&b>a){try{return JSON.parse(s.slice(a,b+1))}catch(e){}}
+  return null;
+}
+async function callClaude(prompt,maxTokens){
+  const res=await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"content-type":"application/json","x-api-key":S.apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:S.model,max_tokens:maxTokens||1500,
+      system:"You are a professional face-to-face interpreter. You only translate; you never reply to the content yourself.",
+      messages:[{role:"user",content:prompt}]})
+  });
+  if(!res.ok){
+    let msg=""; try{const j=await res.json(); msg=j?.error?.message||""}catch(e){}
+    const err=new Error(msg); err.status=res.status; throw err;
+  }
+  const j=await res.json();
+  return (j.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("");
+}
+function errText(e){
+  if(e.status===401) return "APIキーが正しくありません。「設定」でキーを確認してください。";
+  if(e.status===403) return "このAPIキーでは使えません（権限か地域の制限）。";
+  if(e.status===400&&/credit|balance/i.test(e.message)) return "APIのクレジット残高が足りません。Claude Consoleでクレジットを追加してください。";
+  if(e.status===404) return "選んだモデルが使えません。「設定」でSonnetに切り替えてください。";
+  if(e.status===429) return "短時間に使いすぎました。少し待ってからもう一度。";
+  if(e.status===529||e.status>=500) return "Claudeが混み合っています。少し待ってからもう一度押してください。";
+  return "通信できませんでした。電波を確認して、もう一度話してください。";
+}
+async function translate(side,text){
+  if(busy) return; busy=true;
+  setStatus("翻訳中…");
+  try{
+    const raw=await callClaude(buildPrompt(side,text));
+    const r=parseJSON(raw);
+    if(!r||typeof r.translation!=="string"||!r.translation.trim()) throw Object.assign(new Error("parse"),{status:0});
+    const L=LANGS[S.otherLang];
+    const m={side,other:S.otherLang,src:text,out:r.translation.trim(),roman:(r.romanized||"").trim(),back:(r.back||"").trim(),note:(r.note||"").trim(),
+      outLang:side==="me"?L.tts:MY[S.myLang].tts,time:new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})};
+    log.push(m); saveLog(); render(); showTable();
+    setStatus("");
+    const next=side==="me"?"them":"me";
+    const spoke=speak(m.out,m.outLang,()=>{ if(S.handsFree==="on"&&!listening) startListen(next) });
+    if(!spoke&&S.autoSpeak==="on") setStatus(`${side==="me"?L.ja:"この言語"}の声が端末にないため、画面で見せてください。`);
+  }catch(e){
+    setStatus(e.status===0?"訳文をうまく受け取れませんでした。もう一度話してください。":errText(e),true);
+    $("typebox").hidden=false; $("typeText").value=text;
+  }finally{busy=false}
+}
+
+/* key test */
+$("testKey").onclick=async()=>{
+  S.apiKey=$("apiKey").value.trim(); store.set("apiKey",S.apiKey);
+  const msg=$("keyMsg"); msg.className="help"; msg.textContent="確認中…";
+  if(!S.apiKey){msg.textContent="キーを貼り付けてください。";msg.className="help errmsg";return}
+  try{
+    const t=await callClaude('Reply with only: {"ok":true}',20);
+    msg.textContent="✓ 使えます。"; msg.className="help okmsg"; render();
+  }catch(e){ msg.textContent=errText(e); msg.className="help errmsg" }
+};
+
+/* ---------- table mode ---------- */
+let inTable=false, wake=null;
+$("openTable").onclick=async()=>{inTable=true;$("table").hidden=false;showTable();try{wake=await navigator.wakeLock?.request("screen")}catch(e){}};
+$("closeTable").onclick=()=>{inTable=false;$("table").hidden=true;try{wake&&wake.release()}catch(e){};render()};
+function showTable(){
+  if(!inTable) return;
+  const lastMe=[...log].reverse().find(m=>m.side==="me"), lastThem=[...log].reverse().find(m=>m.side==="them");
+  if(lastMe) $("showThem").innerHTML=`<div class="out" lang="${esc(lastMe.outLang)}">${esc(lastMe.out)}</div>`;
+  let h="";
+  if(lastThem) h+=`<div class="src">${esc(lastThem.src)}</div><div class="out">${esc(lastThem.out)}</div>${lastThem.note?`<div class="note">⚠ ${esc(lastThem.note)}</div>`:""}`;
+  if(lastMe&&lastMe.back) h+=`<div class="back"><b>さっき伝えた内容</b>${esc(lastMe.back)}</div>`;
+  if(h) $("showMe").innerHTML=h;
+}
+$("tReplay").onclick=()=>{const m=log[log.length-1]; if(m) speak(m.out,m.outLang,"manual")};
+
+/* ---------- boot ---------- */
+applyLangs();
+setTimeout(loadVoices,800);
+if(!S.apiKey) $("sheet").hidden=false;
+if(!SR) setStatus("このブラウザは音声認識に対応していません。スマホのChromeで開いてください。",true);
+</script>
+</body>
+</html>
